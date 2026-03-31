@@ -10,8 +10,9 @@ class IPFetcher:
     
     def __init__(self, logger):
         self.urls = [
-            "http://4.ipw.cn",
-            "http://6.ipw.cn"
+            ("http://4.ipw.cn", "IPv4"),
+            ("http://6.ipw.cn", "IPv6"),
+            ("http://myip.ipip.net", "Location")
         ]
         self.db_dir = "db"
         self.csv_file = os.path.join(self.db_dir, "ip_records.csv")
@@ -28,8 +29,7 @@ class IPFetcher:
         # 准备数据
         timestamp = int(datetime.now().timestamp())
         data = []
-        for url, result in zip(self.urls, results):
-            ip_type = "IPv4" if "4.ipw.cn" in url else "IPv6"
+        for (url, ip_type), result in zip(self.urls, results):
             # 如果结果包含错误信息，则保存为空
             ip_address = "" if "请求失败" in result or "请求异常" in result else result
             data.append({
@@ -80,7 +80,7 @@ class IPFetcher:
         self.logger.info("开始获取所有IP地址")
         async with aiohttp.ClientSession() as session:
             tasks = []
-            for url in self.urls:
+            for url, _ in self.urls:
                 task = self.fetch_ip(session, url)
                 tasks.append(task)
             
@@ -93,8 +93,7 @@ class IPFetcher:
         print("=" * 40)
         print("外网IP查询结果")
         print("=" * 40)
-        for url, result in zip(self.urls, results):
-            ip_type = "IPv4" if "4.ipw.cn" in url else "IPv6"
+        for (url, ip_type), result in zip(self.urls, results):
             print(f"{ip_type}地址 ({url}): {result}")
         print("=" * 40)
 
