@@ -5,7 +5,9 @@
 
 import logging
 import os
+import sys
 from datetime import datetime
+from pathlib import Path
 from ip_fetcher import main
 
 
@@ -30,6 +32,12 @@ def setup_logging():
     )
     logger = logging.getLogger(__name__)
     logger.info("日志系统初始化完成")
+    
+    # 输出路径信息
+    logger.info(f"当前工作目录: {os.getcwd()}")
+    logger.info(f"项目路径: {Path(__file__).parent.resolve()}")
+    logger.info(f"解释器路径: {sys.executable}")
+    
     return logger
 
 
