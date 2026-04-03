@@ -207,23 +207,23 @@ class IPFetcher:
             print("=" * 40)
     
     def log_summary(self, ip_results, workingday_info=None):
-        """输出日志摘要"""
-        # 格式化输出IP信息
+        """输出日志摘要并返回播报文本"""
         ip_info = {"IPv4": "", "IPv6": "", "Location": ""}
         for (url, ip_type), result in zip(self.ip_urls, ip_results):
             if "请求失败" not in result and "请求异常" not in result:
                 ip_info[ip_type] = result
         
-        # 输出总结
-        text = "总结："
+        text = "播报："
         if workingday_info:
             text += f"\n今日日期：{workingday_info.get('date', '')}"
             text += f"\n今日星期：{workingday_info.get('week', '')}"
             text += f"\n今日类型：{workingday_info.get('info', '')}"
         text += f"\n当前 V4：{ip_info['IPv4']}"
-        text += f"\n当前 V6：{ip_info['IPv6']}"
+        if '2' in ip_info['IPv6']:
+            text += f"\n当前 V6：{ip_info['IPv6']}"
         text += f"\n{ip_info['Location']}"
         self.logger.info(text)
+        return text
     
     def run(self):
         """执行完整的查询流程"""

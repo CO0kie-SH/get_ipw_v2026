@@ -50,23 +50,9 @@ if __name__ == "__main__":
     ip_results, workingday_info = asyncio.run(fetcher.fetch_all_data())
     fetcher.display_results(ip_results, workingday_info)
     fetcher._save_to_csv(ip_results)
-    fetcher.log_summary(ip_results, workingday_info)
+    
+    summary_text = fetcher.log_summary(ip_results, workingday_info)
     
     notifier = FeishuNotifier(logger=logger)
-    
-    ip_info = {"IPv4": "", "IPv6": "", "Location": ""}
-    for (url, ip_type), result in zip(fetcher.ip_urls, ip_results):
-        if "请求失败" not in result and "请求异常" not in result:
-            ip_info[ip_type] = result
-    
-    message = "总结："
-    if workingday_info:
-        message += f"\n今日日期：{workingday_info.get('date', '')}"
-        message += f"\n今日星期：{workingday_info.get('week', '')}"
-        message += f"\n今日类型：{workingday_info.get('info', '')}"
-    message += f"\n当前 V4：{ip_info['IPv4']}"
-    message += f"\n当前 V6：{ip_info['IPv6']}"
-    message += f"\n{ip_info['Location']}"
-    
-    results = asyncio.run(notifier.send_message(message))
+    results = asyncio.run(notifier.send_message(summary_text))
     logger.info(f"飞书发送结果: {results}")
