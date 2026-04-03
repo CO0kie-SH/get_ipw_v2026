@@ -55,7 +55,7 @@ class IPFetcher:
         except Exception as e:
             self.logger.error(f"保存CSV文件失败: {str(e)}")
     
-    async def _fetch_url(self, session, url, timeout=1, is_json=False):
+    async def _fetch_url(self, session, url, timeout=2, is_json=False):
         """
         通用的URL请求方法
         
@@ -90,7 +90,7 @@ class IPFetcher:
             self.logger.error(f"{url} - {error_msg}")
             return error_msg
     
-    async def fetch_all_ips(self, timeout=1):
+    async def fetch_all_ips(self, timeout=2):
         """获取所有IP地址"""
         self.logger.info("开始获取所有IP地址")
         async with aiohttp.ClientSession() as session:
@@ -99,7 +99,7 @@ class IPFetcher:
             self.logger.info("IP地址获取完成")
             return results
     
-    async def fetch_workingday(self, date=None, timeout=5):
+    async def fetch_workingday(self, date=None, timeout=2):
         """
         查询指定日期是否为工作日
         
@@ -125,7 +125,7 @@ class IPFetcher:
                 self.logger.error(f"工作日查询失败")
                 return None
     
-    async def fetch_all_data(self, ip_timeout=1, workingday_timeout=5):
+    async def fetch_all_data(self, ip_timeout=2, workingday_timeout=2):
         """
         获取所有数据（IP地址和工作日信息）
         
