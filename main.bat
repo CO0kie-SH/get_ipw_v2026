@@ -5,4 +5,5 @@
 @set path=D:\0Code2\py312;%path%
 @set path=D:\job\py312\Scripts;D:\job\py312;%path%
 
+::set title="我是标题"
 python main.py

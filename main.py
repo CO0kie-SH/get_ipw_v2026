@@ -7,6 +7,7 @@ import logging
 import os
 import sys
 import asyncio
+import argparse
 from datetime import datetime
 from pathlib import Path
 from ip_fetcher import IPFetcher
@@ -44,6 +45,10 @@ def setup_logging():
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description='IP地址获取与播报系统')
+    parser.add_argument('--title', type=str, help='消息标题')
+    args = parser.parse_args()
+    
     logger = setup_logging()
     
     fetcher = IPFetcher(logger)
@@ -53,6 +58,14 @@ if __name__ == "__main__":
     
     summary_text = fetcher.log_summary(ip_results, workingday_info)
     
+    if args.title:
+        v_title = args.title
+    else:
+        title_env = os.environ.get('title') or os.environ.get('TITLE')
+        if title_env:
+            title_env = title_env.strip('"').strip("'")
+        v_title = title_env if title_env else "播报标题"
+    
     notifier = FeishuNotifier(logger=logger)
-    results = asyncio.run(notifier.send_message(summary_text))
+    results = asyncio.run(notifier.send_message(summary_text, v_title=v_title))
     logger.info(f"飞书发送结果: {results}")

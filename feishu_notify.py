@@ -104,6 +104,8 @@ class FeishuNotifier:
                     message = self._build_message(v_body, v_title=None)
                 elif config_mode == 'post':
                     message = self._build_message(v_body, v_title=v_title)
+                elif config_mode == 'title':
+                    message = self._build_message(v_body, v_title=v_title)
                 else:
                     if self.logger:
                         self.logger.warning(f"飞书机器人 [{config_tag}] 未知模式: {config_mode}")
