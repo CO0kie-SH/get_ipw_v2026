@@ -2,7 +2,7 @@ import asyncio
 import aiohttp
 import csv
 import os
-import json
+import ipaddress
 from datetime import datetime
 
 
@@ -28,7 +28,7 @@ class IPFetcher:
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         }
     
-    def _save_to_csv(self, results):
+    def save_to_csv(self, results):
         """保存IP记录到CSV文件"""
         os.makedirs(self.db_dir, exist_ok=True)
         file_exists = os.path.exists(self.csv_file)
@@ -54,6 +54,10 @@ class IPFetcher:
             self.logger.info(f"IP记录已保存到 {self.csv_file}")
         except Exception as e:
             self.logger.error(f"保存CSV文件失败: {str(e)}")
+
+    def _save_to_csv(self, results):
+        """兼容旧调用，后续统一使用公开方法 save_to_csv"""
+        self.save_to_csv(results)
     
     async def _fetch_url(self, session, url, timeout=2, is_json=False):
         """
@@ -219,11 +223,20 @@ class IPFetcher:
             text += f"\n今日星期：{workingday_info.get('week', '')}"
             text += f"\n今日类型：{workingday_info.get('info', '')}"
         text += f"\n当前 V4：{ip_info['IPv4']}"
-        if '2' in ip_info['IPv6']:
+        if self._is_valid_ipv6(ip_info['IPv6']):
             text += f"\n当前 V6：{ip_info['IPv6']}"
         text += f"\n{ip_info['Location']}"
         self.logger.info(text)
         return text
+
+    @staticmethod
+    def _is_valid_ipv6(value: str) -> bool:
+        if not value:
+            return False
+        try:
+            return isinstance(ipaddress.ip_address(value), ipaddress.IPv6Address)
+        except ValueError:
+            return False
     
     def run(self):
         """执行完整的查询流程"""
@@ -234,7 +247,7 @@ class IPFetcher:
         self.display_results(ip_results, workingday_info)
         
         # 保存到CSV
-        self._save_to_csv(ip_results)
+        self.save_to_csv(ip_results)
         
         # 输出日志摘要
         self.log_summary(ip_results, workingday_info)

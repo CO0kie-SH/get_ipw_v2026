@@ -14,6 +14,30 @@ from ip_fetcher import IPFetcher
 from feishu_notify import FeishuNotifier
 
 
+def cleanup_old_logs(log_dir: str, keep_days: int = 30):
+    """清理超过保留期的日志文件（文件名格式：YYYYMMDD.log）"""
+    cutoff_date = datetime.now().date().toordinal() - keep_days
+    if not os.path.exists(log_dir):
+        return
+
+    for name in os.listdir(log_dir):
+        if not name.endswith(".log"):
+            continue
+        stem = name[:-4]
+        if len(stem) != 8 or not stem.isdigit():
+            continue
+        try:
+            log_date = datetime.strptime(stem, "%Y%m%d").date()
+        except ValueError:
+            continue
+        if log_date.toordinal() < cutoff_date:
+            try:
+                os.remove(os.path.join(log_dir, name))
+            except OSError:
+                # 清理失败不影响主流程
+                pass
+
+
 def setup_logging():
     """配置日志系统"""
     # 确保日志目录存在
@@ -35,6 +59,7 @@ def setup_logging():
     )
     logger = logging.getLogger(__name__)
     logger.info("日志系统初始化完成")
+    cleanup_old_logs(log_dir=log_dir, keep_days=30)
     
     # 输出路径信息
     logger.info(f"当前工作目录: {os.getcwd()}")
@@ -55,7 +80,7 @@ if __name__ == "__main__":
     fetcher = IPFetcher(logger)
     ip_results, workingday_info = asyncio.run(fetcher.fetch_all_data())
     fetcher.display_results(ip_results, workingday_info)
-    fetcher._save_to_csv(ip_results)
+    fetcher.save_to_csv(ip_results)
     
     summary_text = fetcher.log_summary(ip_results, workingday_info)
     
