@@ -9,4 +9,4 @@
 set fei_title="播报标题"
 :: set "only_work=Workday"
 
-python main.py
+python main.py %*

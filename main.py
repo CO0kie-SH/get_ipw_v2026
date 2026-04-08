@@ -66,6 +66,7 @@ def setup_logging() -> logging.Logger:
 class AppArgs:
     title: str | None = None
     only_work: str | None = None
+    noipw: bool = False
 
 
 class IPBroadcastApp:
@@ -81,8 +82,9 @@ class IPBroadcastApp:
         parser = argparse.ArgumentParser(description="IP地址获取与播报系统")
         parser.add_argument("--title", type=str, help="消息标题")
         parser.add_argument("--only_work", type=str, help="指定今日类型相等时才发送飞书消息")
+        parser.add_argument("--noipw", action="store_true", help="skip 4.ipw.cn and 6.ipw.cn")
         ns = parser.parse_args()
-        return AppArgs(title=ns.title, only_work=ns.only_work)
+        return AppArgs(title=ns.title, only_work=ns.only_work, noipw=ns.noipw)
 
     @staticmethod
     def _resolve_title(cli_title: str | None) -> str:
@@ -113,7 +115,7 @@ class IPBroadcastApp:
         return True
 
     def run(self) -> None:
-        ip_results, workingday_info = asyncio.run(self.fetcher.fetch_all_data())
+        ip_results, workingday_info = asyncio.run(self.fetcher.fetch_all_data(noipw=self.args.noipw))
         self.fetcher.display_results(ip_results, workingday_info)
         self.fetcher.save_to_csv(ip_results)
         summary_text = self.fetcher.log_summary(ip_results, workingday_info)

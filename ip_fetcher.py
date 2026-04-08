@@ -3,7 +3,8 @@ import csv
 import ipaddress
 import os
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
+from email.utils import parsedate_to_datetime
 from typing import Any
 
 import aiohttp
@@ -16,9 +17,9 @@ class IPSource:
 
 
 class IPFetcher:
-    """外网IP查询类"""
+    """Public IP query helper."""
 
-    ERROR_KEYWORDS = ("请求失败", "请求异常")
+    ERROR_KEYWORDS = ("request failed", "request exception", "请求失败", "请求异常")
 
     def __init__(self, logger):
         self.ip_sources = [
@@ -31,15 +32,49 @@ class IPFetcher:
         self.csv_file = os.path.join(self.db_dir, "ip_records.csv")
         self.logger = logger
         self.headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/120.0.0.0 Safari/537.36"
+            )
         }
+
+        self.workingday_response_date_gmt = ""
+        self.workingday_response_date_local = ""
 
     @classmethod
     def _is_success_result(cls, result: str) -> bool:
         return not any(keyword in result for keyword in cls.ERROR_KEYWORDS)
 
+    def _active_ip_sources(self, noipw: bool = False) -> list[IPSource]:
+        if not noipw:
+            return self.ip_sources
+        return [source for source in self.ip_sources if source.ip_type == "Location"]
+
+    @staticmethod
+    def _gmt_to_local_time_str(gmt_date_str: str, offset_hours: int = 8) -> str:
+        if not gmt_date_str:
+            return ""
+        try:
+            dt = parsedate_to_datetime(gmt_date_str)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            local_tz = timezone(timedelta(hours=offset_hours))
+            local_dt = dt.astimezone(local_tz)
+            return local_dt.strftime("%Y-%m-%d %H:%M:%S %z")
+        except (TypeError, ValueError):
+            return ""
+
+    def _log_workingday_response_headers(self, url: str, response: aiohttp.ClientResponse) -> None:
+        if url.startswith(self.workingday_api):
+            headers = dict(response.headers)
+            self.logger.info(f"workingday_api response headers: {headers}")
+            date_header = headers.get("Date", "")
+            self.workingday_response_date_gmt = date_header
+            self.workingday_response_date_local = self._gmt_to_local_time_str(date_header)
+
     def save_to_csv(self, results: list[str]) -> None:
-        """保存IP记录到CSV文件"""
+        """Save IP records to CSV."""
         os.makedirs(self.db_dir, exist_ok=True)
         file_exists = os.path.exists(self.csv_file)
 
@@ -47,12 +82,14 @@ class IPFetcher:
         data = []
         for source, result in zip(self.ip_sources, results):
             ip_address = result if self._is_success_result(result) else ""
-            data.append({
-                "timestamp": timestamp,
-                "ip_type": source.ip_type,
-                "url": source.url,
-                "ip_address": ip_address,
-            })
+            data.append(
+                {
+                    "timestamp": timestamp,
+                    "ip_type": source.ip_type,
+                    "url": source.url,
+                    "ip_address": ip_address,
+                }
+            )
 
         try:
             with open(self.csv_file, "a", newline="", encoding="utf-8") as csvfile:
@@ -61,13 +98,9 @@ class IPFetcher:
                 if not file_exists:
                     writer.writeheader()
                 writer.writerows(data)
-            self.logger.info(f"IP记录已保存到 {self.csv_file}")
+            self.logger.info(f"IP records saved to {self.csv_file}")
         except Exception as e:
-            self.logger.error(f"保存CSV文件失败: {str(e)}")
-
-    def _save_to_csv(self, results: list[str]) -> None:
-        """兼容旧调用，后续统一使用公开方法 save_to_csv"""
-        self.save_to_csv(results)
+            self.logger.error(f"failed to save CSV: {str(e)}")
 
     async def _fetch_url(
         self,
@@ -76,111 +109,61 @@ class IPFetcher:
         timeout: int = 2,
         is_json: bool = False,
     ) -> str | dict[str, Any]:
-        """
-        通用的URL请求方法
-        """
+        """Generic URL request helper."""
         try:
-            self.logger.info(f"开始请求: {url}")
+            self.logger.info(f"start request: {url}")
             async with session.get(url, timeout=aiohttp.ClientTimeout(total=timeout)) as response:
+                self._log_workingday_response_headers(url, response)
                 if response.status == 200:
                     if is_json:
                         data = await response.json(content_type=None)
-                        self.logger.info(f"请求成功: {url}")
+                        self.logger.info(f"request success: {url}")
                         return data
                     text = (await response.text()).strip()
-                    self.logger.info(f"成功获取: {url} -> {text}")
+                    self.logger.info(f"fetch success: {url} -> {text}")
                     return text
-                error_msg = f"请求失败，状态码: {response.status}"
+                error_msg = f"request failed, status code: {response.status}"
                 self.logger.error(f"{url} - {error_msg}")
                 return error_msg
         except Exception as e:
-            error_msg = f"请求异常: {str(e)}"
+            error_msg = f"request exception: {str(e)}"
             self.logger.error(f"{url} - {error_msg}")
             return error_msg
 
-    async def fetch_all_ips(self, timeout: int = 2) -> list[str]:
-        """获取所有IP地址"""
-        self.logger.info("开始获取所有IP地址")
-        async with aiohttp.ClientSession(headers=self.headers) as session:
-            tasks = [self._fetch_url(session, source.url, timeout) for source in self.ip_sources]
-            raw_results = await asyncio.gather(*tasks)
-            results = [result if isinstance(result, str) else str(result) for result in raw_results]
-            self.logger.info("IP地址获取完成")
-            return results
-
-    async def fetch_workingday(self, date: str | None = None, timeout: int = 2) -> dict[str, Any] | None:
-        """
-        查询指定日期是否为工作日
-        """
-        if date is None:
-            date = datetime.now().strftime("%Y-%m-%d")
-
-        url = f"{self.workingday_api}?date={date}"
-        self.logger.info(f"开始查询工作日: {date}")
-
-        async with aiohttp.ClientSession(headers=self.headers) as session:
-            result = await self._fetch_url(session, url, timeout, is_json=True)
-            if isinstance(result, dict) and result:
-                self.logger.info(f"工作日查询成功: {result}")
-                return result
-            self.logger.error("工作日查询失败")
-            return None
-
-    async def fetch_all_data(self, ip_timeout: int = 2, workingday_timeout: int = 2) -> tuple[list[str], dict[str, Any] | None]:
-        """
-        获取所有数据（IP地址和工作日信息）
-        """
-        self.logger.info("开始获取所有数据")
+    async def fetch_all_data(
+        self,
+        ip_timeout: int = 2,
+        workingday_timeout: int = 2,
+        noipw: bool = False,
+    ) -> tuple[list[str], dict[str, Any] | None]:
+        """Fetch IP data and workingday info in one session."""
+        self.logger.info("start fetching all data")
 
         async with aiohttp.ClientSession(headers=self.headers) as session:
             date = datetime.now().strftime("%Y-%m-%d")
             workingday_url = f"{self.workingday_api}?date={date}"
-            ip_tasks = [self._fetch_url(session, source.url, ip_timeout) for source in self.ip_sources]
+
+            active_sources = self._active_ip_sources(noipw=noipw)
+            if noipw:
+                self.logger.info("noipw mode enabled, skip 4.ipw.cn and 6.ipw.cn")
+
+            ip_tasks = [self._fetch_url(session, source.url, ip_timeout) for source in active_sources]
             workingday_task = self._fetch_url(session, workingday_url, workingday_timeout, is_json=True)
             all_results = await asyncio.gather(*ip_tasks, workingday_task)
 
             ip_raw = all_results[:-1]
-            ip_results = [item if isinstance(item, str) else str(item) for item in ip_raw]
+            ip_type_to_result = {source.ip_type: "" for source in self.ip_sources}
+            for source, item in zip(active_sources, ip_raw):
+                ip_type_to_result[source.ip_type] = item if isinstance(item, str) else str(item)
+            ip_results = [ip_type_to_result[source.ip_type] for source in self.ip_sources]
+
             workingday_raw = all_results[-1]
             workingday_result = workingday_raw if isinstance(workingday_raw, dict) else None
-            self.logger.info("所有数据获取完成")
+            self.logger.info("all data fetched")
             return ip_results, workingday_result
 
-    def get_recent_ips(self, seconds: int = 5) -> list[dict[str, Any]]:
-        """
-        读取CSV文件中最近指定秒数内的IP地址数据
-        """
-        if not os.path.exists(self.csv_file):
-            self.logger.warning(f"CSV文件不存在: {self.csv_file}")
-            return []
-
-        try:
-            current_timestamp = int(datetime.now().timestamp())
-            cutoff_timestamp = current_timestamp - seconds
-            recent_records = []
-
-            with open(self.csv_file, "r", encoding="utf-8") as csvfile:
-                reader = csv.DictReader(csvfile)
-                for row in reader:
-                    if "timestamp" not in row:
-                        continue
-                    record_timestamp = int(row["timestamp"])
-                    if record_timestamp >= cutoff_timestamp:
-                        recent_records.append({
-                            "timestamp": record_timestamp,
-                            "ip_type": row.get("ip_type", ""),
-                            "url": row.get("url", ""),
-                            "ip_address": row.get("ip_address", ""),
-                        })
-
-            self.logger.info(f"获取到 {len(recent_records)} 条最近{seconds}秒内的IP记录")
-            return recent_records
-        except Exception as e:
-            self.logger.error(f"读取CSV文件失败: {str(e)}")
-            return []
-
     def display_results(self, ip_results: list[str], workingday_info: dict[str, Any] | None = None) -> None:
-        """显示查询结果"""
+        """Print query results."""
         print("=" * 40)
         print("外网IP查询结果")
         print("=" * 40)
@@ -194,10 +177,14 @@ class IPFetcher:
             print(f"日期: {workingday_info.get('date', '')}")
             print(f"星期: {workingday_info.get('week', '')}")
             print(f"类型: {workingday_info.get('info', '')}")
+            if self.workingday_response_date_gmt:
+                print(f"workingday_api Date (GMT): {self.workingday_response_date_gmt}")
+            if self.workingday_response_date_local:
+                print(f"workingday_api Date (+08:00): {self.workingday_response_date_local}")
             print("=" * 40)
 
     def log_summary(self, ip_results: list[str], workingday_info: dict[str, Any] | None = None) -> str:
-        """输出日志摘要并返回播报文本"""
+        """Build and log summary text."""
         ip_info = {"IPv4": "", "IPv6": "", "Location": ""}
         for source, result in zip(self.ip_sources, ip_results):
             if self._is_success_result(result):
@@ -208,9 +195,15 @@ class IPFetcher:
             text += f"\n今日日期：{workingday_info.get('date', '')}"
             text += f"\n今日星期：{workingday_info.get('week', '')}"
             text += f"\n今日类型：{workingday_info.get('info', '')}"
-        text += f"\n当前 V4：{ip_info['IPv4']}"
+
+        if self.workingday_response_date_local:
+            text += f"\n当前时间：{self.workingday_response_date_local.split(' ')[1]}"
+
+        if "." in ip_info["IPv4"]:
+            text += f"\n当前 V4：{ip_info['IPv4']}"
         if self._is_valid_ipv6(ip_info["IPv6"]):
             text += f"\n当前 V6：{ip_info['IPv6']}"
+
         text += f"\n{ip_info['Location']}"
         self.logger.info(text)
         return text
@@ -223,16 +216,3 @@ class IPFetcher:
             return isinstance(ipaddress.ip_address(value), ipaddress.IPv6Address)
         except ValueError:
             return False
-    
-    def run(self) -> None:
-        """执行完整的查询流程"""
-        ip_results, workingday_info = asyncio.run(self.fetch_all_data())
-        self.display_results(ip_results, workingday_info)
-        self.save_to_csv(ip_results)
-        self.log_summary(ip_results, workingday_info)
-
-
-def main(logger) -> None:
-    """主函数"""
-    fetcher = IPFetcher(logger)
-    fetcher.run()

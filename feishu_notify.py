@@ -2,7 +2,7 @@ import asyncio
 import csv
 import os
 from dataclasses import dataclass
-from typing import Dict, Optional
+from typing import Optional
 
 import aiohttp
 
@@ -53,13 +53,14 @@ class FeishuNotifier:
                 "msg_type": "text",
                 "content": {"text": v_body},
             }
+        body_without_first_line = "\n".join(v_body.splitlines()[1:])
         return {
             "msg_type": "post",
             "content": {
                 "post": {
                     "zh-CN": {
                         "title": v_title,
-                        "content": [[{"tag": "text", "text": v_body}]],
+                        "content": [[{"tag": "text", "text": body_without_first_line}]],
                     }
                 }
             },
@@ -110,7 +111,7 @@ class FeishuNotifier:
         success = await self._send_to_webhook(session, config.url, message)
         return config.tag, success
 
-    async def send_message(self, v_body: str, v_title: Optional[str] = None, tag: Optional[str] = None) -> Dict[str, bool]:
+    async def send_message(self, v_body: str, v_title: Optional[str] = None, tag: Optional[str] = None) -> dict[str, bool]:
         results = {}
 
         if not self.configs:
@@ -126,15 +127,3 @@ class FeishuNotifier:
                 results[config_tag] = success
 
         return results
-
-    async def send_to_all(self, v_body: str, v_title: Optional[str] = None) -> Dict[str, bool]:
-        return await self.send_message(v_body, v_title)
-
-    async def send_to_tag(self, tag: str, v_body: str, v_title: Optional[str] = None) -> bool:
-        results = await self.send_message(v_body, v_title, tag=tag)
-        return results.get(tag, False)
-
-
-async def send_feishu_message(logger, v_body: str, v_title: Optional[str] = None, tag: Optional[str] = None) -> Dict[str, bool]:
-    notifier = FeishuNotifier(logger=logger)
-    return await notifier.send_message(v_body, v_title, tag)
