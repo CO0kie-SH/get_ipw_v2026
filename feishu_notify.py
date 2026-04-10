@@ -9,9 +9,10 @@ import aiohttp
 
 @dataclass(frozen=True)
 class FeishuConfig:
-    tag: str
+    name: str
     url: str
     mode: str
+    tag: str = ""
 
 
 class FeishuNotifier:
@@ -29,17 +30,26 @@ class FeishuNotifier:
 
         configs = []
         try:
-            with open(self.config_file, "r", encoding="utf-8") as f:
+            with open(self.config_file, "r", encoding="utf-8-sig") as f:
                 reader = csv.DictReader(f)
+                fieldnames = [name.strip().lower() for name in (reader.fieldnames or [])]
+                has_name_column = "name" in fieldnames
                 for row in reader:
-                    tag = (row.get("tag") or "").strip()
+                    if has_name_column:
+                        # New format: name,url,mode,tag
+                        name = (row.get("name") or "").strip()
+                        tag = (row.get("tag") or "").strip()
+                    else:
+                        # Legacy format: tag,url,mode
+                        name = (row.get("tag") or "").strip()
+                        tag = ""
                     url = (row.get("url") or "").strip()
                     mode = (row.get("mode") or "").strip().lower()
-                    if not tag or not url:
+                    if not name or not url:
                         if self.logger:
                             self.logger.warning(f"存在无效飞书配置，已跳过: {row}")
                         continue
-                    configs.append(FeishuConfig(tag=tag, url=url, mode=mode))
+                    configs.append(FeishuConfig(name=name, url=url, mode=mode, tag=tag.lower()))
             if self.logger:
                 self.logger.info(f"加载飞书配置 {len(configs)} 条")
         except Exception as e:
@@ -96,8 +106,8 @@ class FeishuNotifier:
         mode = config.mode
         if mode == "none":
             if self.logger:
-                self.logger.info(f"飞书机器人 [{config.tag}] 模式为 none，跳过发送")
-            return config.tag, True
+                self.logger.info(f"飞书机器人 [{config.name}] 模式为 none，跳过发送")
+            return config.name, True
 
         if mode == "text":
             message = self._build_message(v_body, v_title=None)
@@ -105,13 +115,19 @@ class FeishuNotifier:
             message = self._build_message(v_body, v_title=v_title)
         else:
             if self.logger:
-                self.logger.warning(f"飞书机器人 [{config.tag}] 未知模式: {config.mode}")
-            return config.tag, False
+                self.logger.warning(f"飞书机器人 [{config.name}] 未知模式: {config.mode}")
+            return config.name, False
 
         success = await self._send_to_webhook(session, config.url, message)
-        return config.tag, success
+        return config.name, success
 
-    async def send_message(self, v_body: str, v_title: Optional[str] = None, tag: Optional[str] = None) -> dict[str, bool]:
+    async def send_message(
+        self,
+        v_body: str,
+        v_title: Optional[str] = None,
+        tag: Optional[str] = None,
+        enabled_tags: Optional[set[str]] = None,
+    ) -> dict[str, bool]:
         results = {}
 
         if not self.configs:
@@ -119,11 +135,36 @@ class FeishuNotifier:
                 self.logger.warning("无飞书配置，跳过发送")
             return results
 
-        selected_configs = [config for config in self.configs if not tag or config.tag == tag]
+        enabled_tags = {item.lower() for item in (enabled_tags or set())}
+        query_tag = (tag or "").strip().lower()
+        selected_configs = []
+        for config in self.configs:
+            config_tag = (config.tag or "").strip()
+
+            # 兼容旧逻辑：显式指定 tag 参数时，只发送匹配的记录
+            if query_tag and not (config.tag == query_tag or config.name.lower() == query_tag):
+                continue
+
+            # 新逻辑：
+            # 1) csv tag 为空 => 默认发送
+            # 2) csv tag 非空 => 只有命令行传入对应开关（如 --user1）才发送
+            if not config_tag or config_tag in enabled_tags:
+                selected_configs.append(config)
+            else:
+                if self.logger:
+                    self.logger.info(
+                        f"飞书机器人 [{config.name}] tag=[{config_tag}] 未启用，跳过发送。"
+                    )
+
+        if not selected_configs:
+            if self.logger:
+                self.logger.warning("无匹配的飞书配置，跳过发送")
+            return results
+
         async with aiohttp.ClientSession() as session:
             tasks = [self._send_by_config(session, config, v_body, v_title) for config in selected_configs]
             task_results = await asyncio.gather(*tasks)
-            for config_tag, success in task_results:
-                results[config_tag] = success
+            for config_name, success in task_results:
+                results[config_name] = success
 
         return results

@@ -8,6 +8,7 @@ import sys
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from typing import Iterable
 
 from feishu_notify import FeishuNotifier
 from ip_fetcher import IPFetcher
@@ -67,6 +68,7 @@ class AppArgs:
     title: str | None = None
     only_work: str | None = None
     noipw: bool = False
+    enabled_tags: set[str] | None = None
 
 
 class IPBroadcastApp:
@@ -78,13 +80,37 @@ class IPBroadcastApp:
         self.fetcher = IPFetcher(logger)
 
     @staticmethod
+    def _parse_enabled_tags(unknown_args: Iterable[str]) -> set[str]:
+        """从未知命令行参数中提取动态 tag 开关（如 --user1、--dev）。"""
+        enabled_tags: set[str] = set()
+        for arg in unknown_args:
+            if not arg.startswith("--") or len(arg) <= 2:
+                continue
+            tag = arg[2:].strip()
+            if "=" in tag:
+                # 兼容 --user1=true 这类写法，本项目仅使用 key
+                tag = tag.split("=", 1)[0].strip()
+            if tag:
+                enabled_tags.add(tag.lower())
+        return enabled_tags
+
+    @staticmethod
     def parse_args() -> AppArgs:
         parser = argparse.ArgumentParser(description="IP地址获取与播报系统")
         parser.add_argument("--title", type=str, help="消息标题")
         parser.add_argument("--only_work", type=str, help="指定今日类型相等时才发送飞书消息")
         parser.add_argument("--noipw", action="store_true", help="skip 4.ipw.cn and 6.ipw.cn")
-        ns = parser.parse_args()
-        return AppArgs(title=ns.title, only_work=ns.only_work, noipw=ns.noipw)
+        ns, unknown_args = parser.parse_known_args()
+
+        # 动态标签开关：用于筛选 FeiShu.csv 中非空 tag 的记录
+        enabled_tags = IPBroadcastApp._parse_enabled_tags(unknown_args)
+
+        return AppArgs(
+            title=ns.title,
+            only_work=ns.only_work,
+            noipw=ns.noipw,
+            enabled_tags=enabled_tags,
+        )
 
     @staticmethod
     def _resolve_title(cli_title: str | None) -> str:
@@ -125,7 +151,13 @@ class IPBroadcastApp:
             return
 
         notifier = FeishuNotifier(logger=self.logger)
-        results = asyncio.run(notifier.send_message(summary_text, v_title=title))
+        results = asyncio.run(
+            notifier.send_message(
+                summary_text,
+                v_title=title,
+                enabled_tags=self.args.enabled_tags,
+            )
+        )
         self.logger.info(f"飞书发送结果: {results}")
 
 

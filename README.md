@@ -1,17 +1,17 @@
-# 外网 IP 播报工具
+﻿# 外网 IP 播报工具
 
 一个用于查询本机外网 IP、工作日信息并发送飞书通知的 Python 工具。
 
 ## 核心能力
-- 并发查询 `IPv4` / `IPv6` / `Location`。
-- 查询工作日信息（`iamwawa.cn`）。
-- 保存查询记录到 `db/ip_records.csv`。
-- 输出运行日志到 `log/YYYYMMDD.log`，并自动清理 30 天前日志。
-- 支持飞书机器人多配置、多模式发送。
-- 支持消息标题（命令行优先，其次环境变量）。
-- 支持 `--only_work` 工作日类型过滤发送。
-- 支持 `--noipw` 跳过 `4.ipw.cn` 和 `6.ipw.cn`。
-- 读取并打印 `workingday_api` 响应头中的 `Date`，并转换为北京时间（+08:00）。
+- 并发查询 `IPv4` / `IPv6` / `Location`
+- 查询工作日信息（`iamwawa.cn`）
+- 保存查询记录到 `db/ip_records.csv`
+- 输出运行日志到 `log/YYYYMMDD.log`，并自动清理 30 天前日志
+- 支持飞书机器人多配置、多模式发送
+- 支持消息标题（命令行优先，其次环境变量）
+- 支持 `--only_work` 工作日类型过滤发送
+- 支持 `--noipw` 跳过 `4.ipw.cn` 和 `6.ipw.cn`
+- 支持按飞书配置 `tag` 动态开关发送（如 `--user1`）
 
 ## 项目结构
 ```text
@@ -51,13 +51,14 @@ python main.py
 
 ## 命令行参数
 ```bash
-python main.py [--title "标题"] [--only_work "类型"] [--noipw]
+python main.py [--title "标题"] [--only_work "类型"] [--noipw] [--<tag>]
 ```
 
 参数说明：
-- `--title`：飞书消息标题。
-- `--only_work`：仅当当天类型匹配时发送飞书（例如：`工作日`）。
-- `--noipw`：跳过 `4.ipw.cn` 和 `6.ipw.cn` 请求，只保留 `Location` 与工作日查询。
+- `--title`：飞书消息标题
+- `--only_work`：仅当天类型匹配时才发送飞书（例如：`工作日`）
+- `--noipw`：跳过 `4.ipw.cn` 和 `6.ipw.cn` 请求，仅保留 `Location` 与工作日查询
+- `--<tag>`：启用指定 tag 的飞书配置（例如：`--user1`）
 
 ## 标题优先级
 1. `--title`
@@ -68,15 +69,33 @@ python main.py [--title "标题"] [--only_work "类型"] [--noipw]
 ## 飞书配置
 文件：`config/FeiShu.csv`
 
-字段：
-- `tag`：机器人标识
-- `url`：webhook
+支持两种格式（兼容）：
+
+### 新格式（推荐）
+```csv
+name,url,mode,tag
+机器人A,https://open.feishu.cn/open-apis/bot/v2/hook/***,text,
+机器人B,https://open.feishu.cn/open-apis/bot/v2/hook/***,title,user1
+```
+
+字段说明：
+- `name`：机器人名称（唯一标识）
+- `url`：Webhook
 - `mode`：`none` / `text` / `post` / `title`
+- `tag`：分组标签（可为空）
+
+发送规则：
+- `tag` 为空：默认发送
+- `tag` 非空：需命令行传对应参数（例如 `--user1`）才发送
+
+### 旧格式（兼容）
+```csv
+tag,url,mode
+默认机器人,https://open.feishu.cn/open-apis/bot/v2/hook/***,text
+```
 
 说明：
-- `none`：跳过发送
-- `text`：文本消息
-- `post`/`title`：带标题消息（此模式下正文会去掉第一行）
+- 旧格式下第一列 `tag` 会被当作机器人名称使用
 
 ## 输出说明
 控制台会输出：
@@ -98,15 +117,13 @@ python main.py [--title "标题"] [--only_work "类型"] [--noipw]
 - `ip_address`
 
 ## 版本
-当前版本：`26.4.8A`
-最后更新：`2026-04-08`
+当前版本：`26.4.10A`
+最后更新：`2026-04-10`
 
 ## 更新日志
-### 26.4.8A (2026-04-08)
-- 优化：精简未使用接口，减少冗余模块代码。
-- 新增：`--noipw` 参数支持（跳过 `4.ipw.cn` / `6.ipw.cn`）。
-- 新增：打印 `workingday_api` 响应头。
-- 新增：将响应头 `Date (GMT)` 转换并展示为北京时间（`+08:00`）。
-- 优化：飞书 `title/post` 消息模式下正文去掉第一行。
-- 优化：播报文本支持输出当前时间（来自响应头转换结果）。
-- 文档：重写 README，统一当前行为与参数说明。
+### 26.4.10A (2026-04-10)
+- 新增：飞书配置 `tag` 动态开关机制（`--<tag>`）
+- 新增：`tag` 为空默认发送，非空按命令行开关启用
+- 优化：飞书配置读取兼容 `utf-8-sig`
+- 优化：`tag` 匹配统一为不区分大小写
+- 文档：重写 README，补充新配置格式与发送规则
