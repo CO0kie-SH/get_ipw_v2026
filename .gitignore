@@ -1,0 +1,11 @@
+﻿# Python cache
+__pycache__/
+*.pyc
+
+# Runtime logs and records
+log/*.log
+db/ip_records.csv
+
+# IDE local settings
+.idea/
+.vscode/
