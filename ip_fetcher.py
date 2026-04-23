@@ -2,6 +2,7 @@ import asyncio
 import csv
 import ipaddress
 import os
+import socket
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
@@ -14,6 +15,7 @@ import aiohttp
 class IPSource:
     url: str
     ip_type: str
+    family: int | None = None
 
 
 class IPFetcher:
@@ -23,8 +25,8 @@ class IPFetcher:
 
     def __init__(self, logger):
         self.ip_sources = [
-            IPSource("http://4.ipw.cn", "IPv4"),
-            IPSource("http://6.ipw.cn", "IPv6"),
+            IPSource("http://4.ifconfig.me/ip", "IPv4", socket.AF_INET),
+            IPSource("http://6.ifconfig.me/ip", "IPv6", socket.AF_INET6),
             IPSource("http://myip.ipip.net", "Location"),
         ]
         self.workingday_api = "https://www.iamwawa.cn/workingday/api"
@@ -139,16 +141,37 @@ class IPFetcher:
         """Fetch IP data and workingday info in one session."""
         self.logger.info("start fetching all data")
 
-        async with aiohttp.ClientSession(headers=self.headers) as session:
+        ipv4_connector = aiohttp.TCPConnector(family=socket.AF_INET)
+        ipv6_connector = aiohttp.TCPConnector(family=socket.AF_INET6)
+
+        async with (
+            aiohttp.ClientSession(headers=self.headers) as default_session,
+            aiohttp.ClientSession(headers=self.headers, connector=ipv4_connector) as ipv4_session,
+            aiohttp.ClientSession(headers=self.headers, connector=ipv6_connector) as ipv6_session,
+        ):
             date = datetime.now().strftime("%Y-%m-%d")
             workingday_url = f"{self.workingday_api}?date={date}"
 
             active_sources = self._active_ip_sources(noipw=noipw)
             if noipw:
-                self.logger.info("noipw mode enabled, skip 4.ipw.cn and 6.ipw.cn")
+                self.logger.info("noipw mode enabled, skip 4.ifconfig.me/ip and 6.ifconfig.me/ip")
 
-            ip_tasks = [self._fetch_url(session, source.url, ip_timeout) for source in active_sources]
-            workingday_task = self._fetch_url(session, workingday_url, workingday_timeout, is_json=True)
+            ip_tasks = []
+            for source in active_sources:
+                if source.family == socket.AF_INET:
+                    session = ipv4_session
+                elif source.family == socket.AF_INET6:
+                    session = ipv6_session
+                else:
+                    session = default_session
+                ip_tasks.append(self._fetch_url(session, source.url, ip_timeout))
+
+            workingday_task = self._fetch_url(
+                default_session,
+                workingday_url,
+                workingday_timeout,
+                is_json=True,
+            )
             all_results = await asyncio.gather(*ip_tasks, workingday_task)
 
             ip_raw = all_results[:-1]

@@ -4,13 +4,14 @@
 
 ## 核心能力
 - 并发查询 `IPv4` / `IPv6` / `Location`
+- `IPv4` / `IPv6` 查询分别强制使用对应协议族网络
 - 查询工作日信息（`iamwawa.cn`）
 - 保存查询记录到 `db/ip_records.csv`
 - 输出运行日志到 `log/YYYYMMDD.log`，并自动清理 30 天前日志
 - 支持飞书机器人多配置、多模式发送
 - 支持消息标题（命令行优先，其次环境变量）
 - 支持 `--only_work` 工作日类型过滤发送
-- 支持 `--noipw` 跳过 `4.ipw.cn` 和 `6.ipw.cn`
+- 支持 `--noipw` 跳过 `4.ifconfig.me/ip` 和 `6.ifconfig.me/ip`
 - 支持按飞书配置 `tag` 动态开关发送（如 `--user1`）
 
 ## 项目结构
@@ -57,8 +58,14 @@ python main.py [--title "标题"] [--only_work "类型"] [--noipw] [--<tag>]
 参数说明：
 - `--title`：飞书消息标题
 - `--only_work`：仅当天类型匹配时才发送飞书（例如：`工作日`）
-- `--noipw`：跳过 `4.ipw.cn` 和 `6.ipw.cn` 请求，仅保留 `Location` 与工作日查询
+- `--noipw`：跳过 `4.ifconfig.me/ip` 和 `6.ifconfig.me/ip` 请求，仅保留 `Location` 与工作日查询
 - `--<tag>`：启用指定 tag 的飞书配置（例如：`--user1`）
+
+## 查询源说明
+- `IPv4`：`http://4.ifconfig.me/ip`
+- `IPv6`：`http://6.ifconfig.me/ip`
+- `Location`：`http://myip.ipip.net`
+- 工作日接口：`https://www.iamwawa.cn/workingday/api`
 
 ## 标题优先级
 1. `--title`
@@ -117,10 +124,15 @@ tag,url,mode
 - `ip_address`
 
 ## 版本
-当前版本：`26.4.10A`
-最后更新：`2026-04-10`
+当前版本：`26.4.23A`
+最后更新：`2026-04-23`
 
 ## 更新日志
+### 26.4.23A (2026-04-23)
+- 调整：将 `IPv4` / `IPv6` 查询源由 `4.ipw.cn`、`6.ipw.cn` 切换为 `4.ifconfig.me/ip`、`6.ifconfig.me/ip`
+- 新增：`IPv4` 请求强制走 `AF_INET`，`IPv6` 请求强制走 `AF_INET6`
+- 文档：更新 `--noipw` 说明与查询源说明，确保 README 与代码一致
+
 ### 26.4.10A (2026-04-10)
 - 新增：飞书配置 `tag` 动态开关机制（`--<tag>`）
 - 新增：`tag` 为空默认发送，非空按命令行开关启用

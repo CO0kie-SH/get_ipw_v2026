@@ -99,7 +99,7 @@ class IPBroadcastApp:
         parser = argparse.ArgumentParser(description="IP地址获取与播报系统")
         parser.add_argument("--title", type=str, help="消息标题")
         parser.add_argument("--only_work", type=str, help="指定今日类型相等时才发送飞书消息")
-        parser.add_argument("--noipw", action="store_true", help="skip 4.ipw.cn and 6.ipw.cn")
+        parser.add_argument("--noipw", action="store_true", help="skip 4.ifconfig.me/ip and 6.ifconfig.me/ip")
         ns, unknown_args = parser.parse_known_args()
 
         # 动态标签开关：用于筛选 FeiShu.csv 中非空 tag 的记录

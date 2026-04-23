@@ -1,12 +1,12 @@
-@chcp 65001>nul
-@title IP Êü•Áúã
+@chcp 936>nul
+@title IP ≤Èø¥
 @cd /d %~dp0
-@set PYTHONIOENCODING=utf-8
+::set PYTHONIOENCODING=utf-8
 
 @set path=D:\0Code2\py312;%path%
 @set path=D:\job\py312\Scripts;D:\job\py312;%path%
 
-set fei_title="ÁÇπÈ•≠Âï¶ÔºÅ"
-:: set "only_work=Workday"
+::set fei_title="ŒÁ∑πÃ·–—£°"
+@set only_work=Workday
 
-python main.py --user2 %*
+python main.py --user1 %*
