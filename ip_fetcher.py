@@ -1,3 +1,9 @@
+"""IP 地址获取模块。
+
+版本：26.5.23A
+日期：2026-05-23
+"""
+
 import asyncio
 import csv
 import ipaddress

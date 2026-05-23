@@ -1,4 +1,12 @@
-"""项目主入口。"""
+"""项目主入口。
+
+版本：26.5.23A
+日期：2026-05-23
+"""
+
+# 版本信息
+VERSION = "26.5.23A"
+BUILD_DATE = "2026-05-23"
 
 import argparse
 import asyncio
@@ -105,9 +113,17 @@ class IPBroadcastApp:
         # 动态标签开关：用于筛选 FeiShu.csv 中非空 tag 的记录
         enabled_tags = IPBroadcastApp._parse_enabled_tags(unknown_args)
 
+        # 命令行未传 --only_work 时，回退读取环境变量
+        resolved_only_work = ns.only_work
+        if resolved_only_work is None:
+            resolved_only_work = (
+                os.environ.get("only_work")
+                or os.environ.get("ONLY_WORK")
+            )
+
         return AppArgs(
             title=ns.title,
-            only_work=ns.only_work,
+            only_work=resolved_only_work,
             noipw=ns.noipw,
             enabled_tags=enabled_tags,
         )
@@ -126,6 +142,13 @@ class IPBroadcastApp:
             title_env = title_env.strip('"').strip("'")
         return title_env if title_env else "播报标题"
 
+    # 关键词自动映射：英文 -> 中文工作日类型
+    _WORKDAY_ALIAS_MAP: dict[str, str] = {
+        "workday": "工作日",
+        "weekend": "周末",
+        "holiday": "节假日",
+    }
+
     def _should_send_feishu(self, workingday_info: dict | None) -> bool:
         if not self.args.only_work:
             return True
@@ -133,9 +156,16 @@ class IPBroadcastApp:
             self.logger.warning("only_work 模式启用，但未获取到工作日信息，跳过飞书消息发送")
             return False
 
+        expected = self.args.only_work
+        # 自动将英文别名映射为中文类型（如 Workday -> 工作日）
+        mapped = self._WORKDAY_ALIAS_MAP.get(expected.strip().lower())
+        if mapped:
+            self.logger.info(f"only_work 自动映射: [{expected}] -> [{mapped}]")
+            expected = mapped
+
         today_type = workingday_info.get("info", "")
-        if today_type != self.args.only_work:
-            self.logger.info(f"only_work 模式启用，今日类型为 [{today_type}]，跳过飞书消息发送")
+        if today_type != expected:
+            self.logger.info(f"only_work 模式启用，今日类型为 [{today_type}]，期望 [{expected}]，跳过飞书消息发送")
             return False
         self.logger.info(f"only_work 模式启用，今日类型为 [{today_type}]，继续发送飞书消息")
         return True

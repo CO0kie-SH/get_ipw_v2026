@@ -124,10 +124,16 @@ tag,url,mode
 - `ip_address`
 
 ## 版本
-当前版本：`26.4.23A`
-最后更新：`2026-04-23`
+当前版本：`26.5.23A`
+最后更新：`2026-05-23`
 
 ## 更新日志
+### 26.5.23A (2026-05-23)
+- 修复：`only_work` 环境变量未被读取的 bug，现在命令行未传 `--only_work` 时回退读取 `only_work` / `ONLY_WORK` 环境变量
+- 新增：`only_work` 英文别名自动映射（`Workday` → `工作日`，`Weekend` → `周末`，`Holiday` → `节假日`）
+- 新增：各模块添加版本号和构建日期标识
+- 改进：`main.bat` 标题显示版本号
+
 ### 26.4.23A (2026-04-23)
 - 调整：将 `IPv4` / `IPv6` 查询源由 `4.ipw.cn`、`6.ipw.cn` 切换为 `4.ifconfig.me/ip`、`6.ifconfig.me/ip`
 - 新增：`IPv4` 请求强制走 `AF_INET`，`IPv6` 请求强制走 `AF_INET6`
