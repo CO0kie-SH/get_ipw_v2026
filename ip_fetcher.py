@@ -1,6 +1,6 @@
 """IP 地址获取模块。
 
-版本：26.6.19D
+版本：26.6.19F
 日期：2026-06-19
 """
 
@@ -32,10 +32,10 @@ class IPFetcher:
 
     def __init__(self, logger):
         self.ip_sources = [
-            IPSource("http://4.ifconfig.me/ip", "IPv4", socket.AF_INET),
-            IPSource("http://6.ifconfig.me/ip", "IPv6", socket.AF_INET6),
-            IPSource("http://myip.ipip.net", "Location_v4", socket.AF_INET),
-            IPSource("http://myip.ipip.net", "Location_v6", socket.AF_INET6),
+            IPSource("https://4.ifconfig.me/ip", "IPv4", socket.AF_INET),
+            IPSource("https://6.ifconfig.me/ip", "IPv6", socket.AF_INET6),
+            IPSource("https://myip.ipip.net", "Location_v4", socket.AF_INET),
+            IPSource("https://myip.ipip.net", "Location_v6", socket.AF_INET6),
         ]
         self.workingday_api = "https://www.iamwawa.cn/workingday/api"
         self.db_dir = "db"

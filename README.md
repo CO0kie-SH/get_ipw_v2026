@@ -20,6 +20,7 @@
 get_ipw_v2026/
 ├── main.py               # 主入口
 ├── main.bat              # Windows 启动脚本
+├── main.sh               # Linux 启动脚本
 ├── ip_fetcher.py         # IP/工作日查询与数据落盘
 ├── feishu_notify.py      # 飞书消息发送
 ├── config/
@@ -44,6 +45,12 @@ pip install aiohttp
 按项目规则推荐：
 ```bash
 cmd /c main.bat
+```
+
+Linux 平台：
+```bash
+chmod +x main.sh
+./main.sh
 ```
 
 或直接运行：
@@ -80,10 +87,10 @@ python main.py --diff --diff_window 4 --user1
 ```
 
 ## 查询源说明
-- `IPv4`：`http://4.ifconfig.me/ip`（强制 `AF_INET`）
-- `IPv6`：`http://6.ifconfig.me/ip`（强制 `AF_INET6`）
-- `Location_v4`：`http://myip.ipip.net`（强制 `AF_INET`）
-- `Location_v6`：`http://myip.ipip.net`（强制 `AF_INET6`）
+- `IPv4`：`https://4.ifconfig.me/ip`（强制 `AF_INET`）
+- `IPv6`：`https://6.ifconfig.me/ip`（强制 `AF_INET6`）
+- `Location_v4`：`https://myip.ipip.net`（强制 `AF_INET`）
+- `Location_v6`：`https://myip.ipip.net`（强制 `AF_INET6`）
 - 工作日接口：`https://www.iamwawa.cn/workingday/api`
 
 ## 标题优先级
@@ -143,10 +150,19 @@ tag,url,mode
 - `ip_address`
 
 ## 版本
-当前版本：`26.6.19D`
+当前版本：`26.6.19F`
 最后更新：`2026-06-19`
 
 ## 更新日志
+### 26.6.19F (2026-06-19)
+- 新增：Linux 平台启动脚本 `main.sh`
+- 文档：补充 Linux 运行方式与 shell 脚本格式要求
+
+### 26.6.19E (2026-06-19)
+- 调整：4 个 IP 查询源由 HTTP 切换为 HTTPS
+- 修复：统一 bat 文件为 UTF-8 编码与 CRLF 换行，修复乱码风险
+- 文档：项目规则新增 bat 文件编码与换行格式要求
+
 ### 26.6.19D (2026-06-19)
 - 新增：IP 与工作日接口请求失败时自动重试，默认最多请求 3 次
 - 改进：重试日志显示当前尝试次数与重试等待时间，保留原有失败清空与 diff 跳过逻辑
