@@ -1,6 +1,6 @@
 """IP 地址获取模块。
 
-版本：26.6.19C
+版本：26.6.19D
 日期：2026-06-19
 """
 
@@ -187,33 +187,45 @@ class IPFetcher:
         url: str,
         timeout: int = 2,
         is_json: bool = False,
+        retries: int = 2,
+        retry_delay: float = 0.5,
     ) -> str | dict[str, Any]:
         """Generic URL request helper."""
-        try:
-            self.logger.info(f"start request: {url}")
-            async with session.get(url, timeout=aiohttp.ClientTimeout(total=timeout)) as response:
-                self._log_workingday_response_headers(url, response)
-                if response.status == 200:
-                    if is_json:
-                        data = await response.json(content_type=None)
-                        self.logger.info(f"request success: {url}")
-                        return data
-                    text = (await response.text()).strip()
-                    self.logger.info(f"fetch success: {url} -> {text}")
-                    return text
-                error_msg = f"request failed, status code: {response.status}"
-                self.logger.error(f"{url} - {error_msg}")
-                return error_msg
-        except Exception as e:
-            error_msg = f"request exception: {str(e)}"
-            self.logger.error(f"{url} - {error_msg}")
-            return error_msg
+        max_attempts = max(1, retries + 1)
+        last_error = ""
+
+        for attempt in range(1, max_attempts + 1):
+            try:
+                self.logger.info(f"start request: {url} (attempt {attempt}/{max_attempts})")
+                async with session.get(url, timeout=aiohttp.ClientTimeout(total=timeout)) as response:
+                    self._log_workingday_response_headers(url, response)
+                    if response.status == 200:
+                        if is_json:
+                            data = await response.json(content_type=None)
+                            self.logger.info(f"request success: {url}")
+                            return data
+                        text = (await response.text()).strip()
+                        self.logger.info(f"fetch success: {url} -> {text}")
+                        return text
+                    last_error = f"request failed, status code: {response.status}"
+                    self.logger.error(f"{url} - {last_error}")
+            except Exception as e:
+                last_error = f"request exception: {str(e)}"
+                self.logger.error(f"{url} - {last_error}")
+
+            if attempt < max_attempts:
+                self.logger.info(f"retry request after {retry_delay}s: {url}")
+                await asyncio.sleep(retry_delay)
+
+        return last_error or "request failed, retry exhausted"
 
     async def fetch_all_data(
         self,
         ip_timeout: int = 2,
         workingday_timeout: int = 2,
         noipw: bool = False,
+        retries: int = 2,
+        retry_delay: float = 0.5,
     ) -> tuple[list[str], dict[str, Any] | None]:
         """Fetch IP data and workingday info in one session."""
         self.logger.info("start fetching all data")
@@ -241,13 +253,23 @@ class IPFetcher:
                     session = ipv6_session
                 else:
                     session = default_session
-                ip_tasks.append(self._fetch_url(session, source.url, ip_timeout))
+                ip_tasks.append(
+                    self._fetch_url(
+                        session,
+                        source.url,
+                        ip_timeout,
+                        retries=retries,
+                        retry_delay=retry_delay,
+                    )
+                )
 
             workingday_task = self._fetch_url(
                 default_session,
                 workingday_url,
                 workingday_timeout,
                 is_json=True,
+                retries=retries,
+                retry_delay=retry_delay,
             )
             all_results = await asyncio.gather(*ip_tasks, workingday_task)
 
