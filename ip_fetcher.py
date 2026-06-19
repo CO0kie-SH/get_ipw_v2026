@@ -1,13 +1,14 @@
 """IP 地址获取模块。
 
-版本：26.5.23A
-日期：2026-05-23
+版本：26.6.19C
+日期：2026-06-19
 """
 
 import asyncio
 import csv
 import ipaddress
 import os
+import re
 import socket
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -33,7 +34,8 @@ class IPFetcher:
         self.ip_sources = [
             IPSource("http://4.ifconfig.me/ip", "IPv4", socket.AF_INET),
             IPSource("http://6.ifconfig.me/ip", "IPv6", socket.AF_INET6),
-            IPSource("http://myip.ipip.net", "Location"),
+            IPSource("http://myip.ipip.net", "Location_v4", socket.AF_INET),
+            IPSource("http://myip.ipip.net", "Location_v6", socket.AF_INET6),
         ]
         self.workingday_api = "https://www.iamwawa.cn/workingday/api"
         self.db_dir = "db"
@@ -57,7 +59,7 @@ class IPFetcher:
     def _active_ip_sources(self, noipw: bool = False) -> list[IPSource]:
         if not noipw:
             return self.ip_sources
-        return [source for source in self.ip_sources if source.ip_type == "Location"]
+        return [source for source in self.ip_sources if source.ip_type.startswith("Location")]
 
     @staticmethod
     def _gmt_to_local_time_str(gmt_date_str: str, offset_hours: int = 8) -> str:
@@ -81,23 +83,60 @@ class IPFetcher:
             self.workingday_response_date_gmt = date_header
             self.workingday_response_date_local = self._gmt_to_local_time_str(date_header)
 
+    def build_record_map(self, results: list[str]) -> dict[str, str]:
+        """构建 ip_type -> 结果值映射（查询失败记为空串），供落盘与 diff 对比复用。"""
+        return {
+            source.ip_type: (result if self._is_success_result(result) else "")
+            for source, result in zip(self.ip_sources, results)
+        }
+
+    @staticmethod
+    def extract_ip(value: str) -> str:
+        """从结果文本中提取纯 IP 地址，提取不到（含请求失败）时返回空串。
+
+        - ifconfig 源本身即裸 IP，直接返回
+        - ipip 源形如 "当前 IP：1.2.3.4  来自于：..."，提取其中的 IP
+        - 注意：按全角冒号与空白切分，避免破坏 IPv6 中的半角冒号
+        """
+        if not value:
+            return ""
+        stripped = value.strip()
+        try:
+            ipaddress.ip_address(stripped)
+            return stripped
+        except ValueError:
+            pass
+        for token in re.split(r"[：\s]+", stripped):
+            try:
+                ipaddress.ip_address(token)
+                return token
+            except ValueError:
+                continue
+        return ""
+
+    def build_compare_map(self, results: list[str]) -> dict[str, str]:
+        """构建 ip_type -> 纯 IP 映射，用于 diff 对比（失败项为空串）。"""
+        return {
+            source.ip_type: self.extract_ip(result)
+            for source, result in zip(self.ip_sources, results)
+        }
+
     def save_to_csv(self, results: list[str]) -> None:
         """Save IP records to CSV."""
         os.makedirs(self.db_dir, exist_ok=True)
         file_exists = os.path.exists(self.csv_file)
 
         timestamp = int(datetime.now().timestamp())
-        data = []
-        for source, result in zip(self.ip_sources, results):
-            ip_address = result if self._is_success_result(result) else ""
-            data.append(
-                {
-                    "timestamp": timestamp,
-                    "ip_type": source.ip_type,
-                    "url": source.url,
-                    "ip_address": ip_address,
-                }
-            )
+        record_map = self.build_record_map(results)
+        data = [
+            {
+                "timestamp": timestamp,
+                "ip_type": source.ip_type,
+                "url": source.url,
+                "ip_address": record_map[source.ip_type],
+            }
+            for source in self.ip_sources
+        ]
 
         try:
             with open(self.csv_file, "a", newline="", encoding="utf-8") as csvfile:
@@ -109,6 +148,38 @@ class IPFetcher:
             self.logger.info(f"IP records saved to {self.csv_file}")
         except Exception as e:
             self.logger.error(f"failed to save CSV: {str(e)}")
+
+    def load_last_record_group(self) -> tuple[int, dict[str, str]] | None:
+        """读取 CSV 中最后一组记录（同一 timestamp 的若干行）。
+
+        返回 (timestamp, {ip_type: ip_address})，无记录时返回 None。
+        需在写入本轮记录之前调用，此时最后一组即为「上一轮」。
+        """
+        if not os.path.exists(self.csv_file):
+            return None
+        try:
+            with open(self.csv_file, newline="", encoding="utf-8") as csvfile:
+                rows = list(csv.DictReader(csvfile))
+        except Exception as e:
+            self.logger.error(f"failed to read CSV: {str(e)}")
+            return None
+
+        last_ts: int | None = None
+        for row in reversed(rows):
+            try:
+                last_ts = int(row["timestamp"])
+                break
+            except (KeyError, ValueError, TypeError):
+                continue
+        if last_ts is None:
+            return None
+
+        values = {
+            row["ip_type"]: row.get("ip_address", "")
+            for row in rows
+            if row.get("timestamp") == str(last_ts) and row.get("ip_type")
+        }
+        return last_ts, values
 
     async def _fetch_url(
         self,
@@ -214,7 +285,7 @@ class IPFetcher:
 
     def log_summary(self, ip_results: list[str], workingday_info: dict[str, Any] | None = None) -> str:
         """Build and log summary text."""
-        ip_info = {"IPv4": "", "IPv6": "", "Location": ""}
+        ip_info = {source.ip_type: "" for source in self.ip_sources}
         for source, result in zip(self.ip_sources, ip_results):
             if self._is_success_result(result):
                 ip_info[source.ip_type] = result
@@ -228,12 +299,17 @@ class IPFetcher:
         if self.workingday_response_date_local:
             text += f"\n当前时间：{self.workingday_response_date_local.split(' ')[1]}"
 
+        # 前两行：ifconfig.me 的 V4 / V6
         if "." in ip_info["IPv4"]:
             text += f"\n当前 V4：{ip_info['IPv4']}"
         if self._is_valid_ipv6(ip_info["IPv6"]):
             text += f"\n当前 V6：{ip_info['IPv6']}"
 
-        text += f"\n{ip_info['Location']}"
+        # 后两行：myip.ipip.net 的 V4 / V6
+        if ip_info["Location_v4"]:
+            text += f"\n{ip_info['Location_v4']}"
+        if ip_info["Location_v6"]:
+            text += f"\n{ip_info['Location_v6']}"
         self.logger.info(text)
         return text
 

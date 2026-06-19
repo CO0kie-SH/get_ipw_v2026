@@ -13,6 +13,7 @@
 - 支持 `--only_work` 工作日类型过滤发送
 - 支持 `--noipw` 跳过 `4.ifconfig.me/ip` 和 `6.ifconfig.me/ip`
 - 支持按飞书配置 `tag` 动态开关发送（如 `--user1`）
+- 支持 `--diff` 变化播报模式：与上一轮结果一致则不播报（仍记日志），不一致才播报
 
 ## 项目结构
 ```text
@@ -52,19 +53,37 @@ python main.py
 
 ## 命令行参数
 ```bash
-python main.py [--title "标题"] [--only_work "类型"] [--noipw] [--<tag>]
+python main.py [--title "标题"] [--only_work "类型"] [--noipw] [--diff] [--diff_window N] [--<tag>]
 ```
 
 参数说明：
 - `--title`：飞书消息标题
 - `--only_work`：仅当天类型匹配时才发送飞书（例如：`工作日`）
 - `--noipw`：跳过 `4.ifconfig.me/ip` 和 `6.ifconfig.me/ip` 请求，仅保留 `Location` 与工作日查询
+- `--diff`：变化播报模式。与「上一轮」记录的 4 行 IP 结果对比，一致则不播报（仍记日志），不一致才播报
+- `--diff_window N`：`--diff` 的回看时间窗（分钟），默认 `3`。上一轮记录距今超出该时间窗则视为「无有效上一轮」
 - `--<tag>`：启用指定 tag 的飞书配置（例如：`--user1`）
 
+### diff 变化播报模式说明
+配合外部计划任务定时调度（例如每 3 分钟一次）使用：
+- 每次运行读取 `db/ip_records.csv` 中最近一组记录作为「上一轮」
+- 对比时**提取纯 IP**（剥离 `Location` 的「来自于…」文本），按 `IPv4` / `IPv6` / `Location_v4` / `Location_v6` 同类对比
+- **请求失败项自动剔除**：本轮或上一轮该项为空（请求失败）时跳过该项，不参与对比、不视为变化
+- 仅当某项成功取到的 IP 与上一轮不同 → 照常播报；全部一致或无可对比项 → 跳过播报，仅记日志留痕
+- 以下情况视为「无有效上一轮」，照常播报：首次运行、上一轮记录超出 `--diff_window` 时间窗
+- `diff_window` 建议略大于调度间隔（如每 3 分钟调度，可设 `--diff_window 4`），避免调度抖动导致误判为超时
+- `diff_window` 也可由环境变量 `diff_window` / `DIFF_WINDOW` 提供（命令行优先）
+
+示例：
+```bash
+python main.py --diff --diff_window 4 --user1
+```
+
 ## 查询源说明
-- `IPv4`：`http://4.ifconfig.me/ip`
-- `IPv6`：`http://6.ifconfig.me/ip`
-- `Location`：`http://myip.ipip.net`
+- `IPv4`：`http://4.ifconfig.me/ip`（强制 `AF_INET`）
+- `IPv6`：`http://6.ifconfig.me/ip`（强制 `AF_INET6`）
+- `Location_v4`：`http://myip.ipip.net`（强制 `AF_INET`）
+- `Location_v6`：`http://myip.ipip.net`（强制 `AF_INET6`）
 - 工作日接口：`https://www.iamwawa.cn/workingday/api`
 
 ## 标题优先级
@@ -124,10 +143,25 @@ tag,url,mode
 - `ip_address`
 
 ## 版本
-当前版本：`26.5.23A`
-最后更新：`2026-05-23`
+当前版本：`26.6.19C`
+最后更新：`2026-06-19`
 
 ## 更新日志
+### 26.6.19C (2026-06-19)
+- 修复：diff 模式将请求失败误判为「变化」而触发播报的问题
+- 改进：diff 对比改为提取纯 IP（剥离 `Location` 的「来自于…」文本），按 IP 类型同类对比
+- 改进：请求失败项（本轮或上一轮为空）自动剔除，不参与对比、不视为变化
+
+### 26.6.19B (2026-06-19)
+- 新增：`--diff` 变化播报模式，与上一轮 4 行结果一致则不播报（仍记日志留痕），不一致才播报
+- 新增：`--diff_window N` 回看时间窗（分钟，默认 3），支持 `diff_window` / `DIFF_WINDOW` 环境变量
+- 新增：`IPFetcher.load_last_record_group` 读取上一轮记录、`build_record_map` 复用落盘与对比逻辑
+
+### 26.6.19A (2026-06-19)
+- 新增：`myip.ipip.net` 同时强制走 `AF_INET` / `AF_INET6` 查询（复用 IPv4/IPv6 的协议族逻辑），归属地接入 IPv6
+- 改进：播报文本输出 4 行 IP —— 前两行为 `ifconfig.me` 的 V4/V6，后两行为 `myip.ipip.net` 的 V4/V6
+- 改进：`--noipw` 现保留 `myip.ipip.net` 的 V4 与 V6 两条查询
+
 ### 26.5.23A (2026-05-23)
 - 修复：`only_work` 环境变量未被读取的 bug，现在命令行未传 `--only_work` 时回退读取 `only_work` / `ONLY_WORK` 环境变量
 - 新增：`only_work` 英文别名自动映射（`Workday` → `工作日`，`Weekend` → `周末`，`Holiday` → `节假日`）

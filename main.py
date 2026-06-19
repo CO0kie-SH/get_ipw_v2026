@@ -1,12 +1,12 @@
 """项目主入口。
 
-版本：26.5.23A
-日期：2026-05-23
+版本：26.6.19C
+日期：2026-06-19
 """
 
 # 版本信息
-VERSION = "26.5.23A"
-BUILD_DATE = "2026-05-23"
+VERSION = "26.6.19C"
+BUILD_DATE = "2026-06-19"
 
 import argparse
 import asyncio
@@ -77,6 +77,8 @@ class AppArgs:
     only_work: str | None = None
     noipw: bool = False
     enabled_tags: set[str] | None = None
+    diff: bool = False
+    diff_window: int = 3
 
 
 class IPBroadcastApp:
@@ -108,6 +110,8 @@ class IPBroadcastApp:
         parser.add_argument("--title", type=str, help="消息标题")
         parser.add_argument("--only_work", type=str, help="指定今日类型相等时才发送飞书消息")
         parser.add_argument("--noipw", action="store_true", help="skip 4.ifconfig.me/ip and 6.ifconfig.me/ip")
+        parser.add_argument("--diff", action="store_true", help="diff 模式：与上一轮结果一致则不播报（仍记日志）")
+        parser.add_argument("--diff_window", type=int, help="diff 模式回看时间窗（分钟），默认 3")
         ns, unknown_args = parser.parse_known_args()
 
         # 动态标签开关：用于筛选 FeiShu.csv 中非空 tag 的记录
@@ -121,11 +125,19 @@ class IPBroadcastApp:
                 or os.environ.get("ONLY_WORK")
             )
 
+        # diff_window：命令行优先，其次环境变量，最后默认 3
+        resolved_diff_window = ns.diff_window
+        if resolved_diff_window is None:
+            env_window = os.environ.get("diff_window") or os.environ.get("DIFF_WINDOW")
+            resolved_diff_window = int(env_window) if env_window and env_window.lstrip("-").isdigit() else 3
+
         return AppArgs(
             title=ns.title,
             only_work=resolved_only_work,
             noipw=ns.noipw,
             enabled_tags=enabled_tags,
+            diff=ns.diff,
+            diff_window=resolved_diff_window,
         )
 
     @staticmethod
@@ -170,14 +182,75 @@ class IPBroadcastApp:
         self.logger.info(f"only_work 模式启用，今日类型为 [{today_type}]，继续发送飞书消息")
         return True
 
+    def _should_broadcast_diff(
+        self,
+        ip_results: list[str],
+        prev_group: tuple[int, dict[str, str]] | None,
+    ) -> bool:
+        """diff 模式判定：与上一轮对比纯 IP，变化才播报（仍记日志）。
+
+        - 提取纯 IP（去掉 ipip 的「来自于…」文本）后按 ip_type 同类对比
+        - 请求失败项（本轮或上一轮为空）直接剔除，不参与对比、不视为变化
+        - 无有效上一轮（首次 / 超出时间窗）时照常播报
+        """
+        if not self.args.diff:
+            return True
+
+        current = self.fetcher.build_compare_map(ip_results)
+
+        if prev_group is None:
+            self.logger.info("diff 模式：无上一轮记录，照常播报")
+            return True
+
+        prev_ts, prev_values_raw = prev_group
+        age_sec = int(datetime.now().timestamp()) - prev_ts
+        window_sec = self.args.diff_window * 60
+        if age_sec > window_sec:
+            self.logger.info(
+                f"diff 模式：上一轮记录距今 {age_sec}s 超出时间窗 {window_sec}s，照常播报"
+            )
+            return True
+
+        prev = {ip_type: self.fetcher.extract_ip(raw) for ip_type, raw in prev_values_raw.items()}
+
+        # 仅对比两轮都成功取到 IP 的项，剔除请求失败项
+        changed: dict[str, tuple[str, str]] = {}
+        compared = 0
+        for ip_type, cur_ip in current.items():
+            prev_ip = prev.get(ip_type, "")
+            if not cur_ip or not prev_ip:
+                continue
+            compared += 1
+            if cur_ip != prev_ip:
+                changed[ip_type] = (prev_ip, cur_ip)
+
+        if changed:
+            self.logger.info(f"diff 模式：检测到 IP 变化 {changed}，照常播报")
+            return True
+
+        if compared == 0:
+            self.logger.info("diff 模式：无可对比的成功 IP 项（请求失败），跳过播报")
+            return False
+
+        self.logger.info(
+            f"diff 模式：{compared} 项 IP 与上一轮一致（距今 {age_sec}s），跳过播报"
+        )
+        return False
+
     def run(self) -> None:
         ip_results, workingday_info = asyncio.run(self.fetcher.fetch_all_data(noipw=self.args.noipw))
         self.fetcher.display_results(ip_results, workingday_info)
+
+        # 在写入本轮记录之前读取上一轮，供 diff 模式对比
+        prev_group = self.fetcher.load_last_record_group() if self.args.diff else None
+
         self.fetcher.save_to_csv(ip_results)
         summary_text = self.fetcher.log_summary(ip_results, workingday_info)
         title = self._resolve_title(self.args.title)
 
         if not self._should_send_feishu(workingday_info):
+            return
+        if not self._should_broadcast_diff(ip_results, prev_group):
             return
 
         notifier = FeishuNotifier(logger=self.logger)
